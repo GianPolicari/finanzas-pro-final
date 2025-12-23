@@ -8,6 +8,12 @@ from datetime import datetime
 from database import get_available_months, get_monthly_summary, get_monthly_transactions
 
 def main():
+    # Get authenticated user ID from session state
+    user_id = st.session_state.get('user_id')
+    if not user_id:
+        st.error("⚠️ Error: No user authenticated")
+        return
+    
     st.title("📊 Dashboard Financiero")
     st.markdown("---")
     
@@ -15,7 +21,7 @@ def main():
     # MONTH FILTER
     # ============================================
     
-    available_months = get_available_months()
+    available_months = get_available_months(user_id)
     
     if not available_months:
         st.info("👋 No hay transacciones registradas aún. ¡Comienza agregando ingresos o gastos!")
@@ -38,7 +44,7 @@ def main():
     # MONTHLY SUMMARY
     # ============================================
     
-    summary = get_monthly_summary(selected_year, selected_month)
+    summary = get_monthly_summary(user_id, selected_year, selected_month)
     
     # Row 1: Net Balance (Hero Metric)
     st.markdown("### 💰 Balance Neto")
@@ -81,7 +87,7 @@ def main():
         st.caption("Compras realizadas en períodos anteriores")
         
         # Show card transactions
-        card_trans = get_monthly_transactions(selected_year, selected_month, "Card")
+        card_trans = get_monthly_transactions(user_id, selected_year, selected_month, "Card")
         if card_trans:
             with st.expander(f"📋 Ver {len(card_trans)} movimientos"):
                 for trans in card_trans:
@@ -105,7 +111,7 @@ def main():
         st.markdown(f"- 💵 Débito: `${summary['debit']:,.2f}`")
         
         # Show recent transactions
-        cash_trans = get_monthly_transactions(selected_year, selected_month)
+        cash_trans = get_monthly_transactions(user_id, selected_year, selected_month)
         cash_trans = [t for t in cash_trans if t["type"] in ["Fixed", "Debit"]]
         
         if cash_trans:

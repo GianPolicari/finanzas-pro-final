@@ -1,6 +1,7 @@
 """
 FINANZAS PRO - Centralized Database Logic Layer
 Supabase + PostgreSQL Backend
+MULTI-USER SAAS VERSION - All functions require user_id for data isolation
 """
 
 import os
@@ -26,6 +27,7 @@ def get_supabase_client() -> Client:
 # ============================================
 
 def save_cash_transaction(
+    user_id: str,
     trans_type: str,  # 'Income', 'Fixed', 'Debit'
     date: datetime,
     amount: float,
@@ -33,7 +35,7 @@ def save_cash_transaction(
     description: str = ""
 ) -> bool:
     """
-    Save Cash/Debit/Fixed/Income transaction.
+    Save Cash/Debit/Fixed/Income transaction with user isolation.
     Rule: payment_date = date (Immediate impact)
     """
     try:
@@ -43,8 +45,9 @@ def save_cash_transaction(
         if trans_type not in ['Income', 'Fixed', 'Debit']:
             raise ValueError(f"Invalid type for cash transaction: {trans_type}")
         
-        # Prepare data
+        # Prepare data with user_id
         data = {
+            "user_id": user_id,
             "date": date.strftime("%Y-%m-%d"),
             "payment_date": date.strftime("%Y-%m-%d"),  # LOGIC A: Same as transaction date
             "amount": amount,
@@ -126,6 +129,7 @@ def calculate_payment_date(
 
 
 def save_card_transaction(
+    user_id: str,
     card_id: int,
     date: datetime,
     amount: float,
@@ -134,7 +138,7 @@ def save_card_transaction(
     installments: int = 1
 ) -> Tuple[bool, List[str]]:
     """
-    Save Credit Card transaction with installments.
+    Save Credit Card transaction with installments and user isolation.
     
     Rule: payment_date is calculated at insertion time based on card's CURRENT closing_day.
     Returns: (success: bool, affected_months: List[str])
@@ -143,11 +147,15 @@ def save_card_transaction(
         supabase = get_supabase_client()
         affected_months = []
         
-        # Fetch card's current closing_day
-        card_response = supabase.table("credit_cards").select("closing_day").eq("id", card_id).execute()
+        # Fetch card's current closing_day (must belong to user)
+        card_response = supabase.table("credit_cards") \
+            .select("closing_day") \
+            .eq("id", card_id) \
+            .eq("user_id", user_id) \
+            .execute()
         
         if not card_response.data:
-            st.error("Card not found")
+            st.error("Card not found or doesn't belong to you")
             return False, []
         
         closing_day = card_response.data[0]["closing_day"]
@@ -168,8 +176,9 @@ def save_card_transaction(
             if month_str not in affected_months:
                 affected_months.append(month_str)
             
-            # Prepare installment data
+            # Prepare installment data with user_id
             data = {
+                "user_id": user_id,
                 "date": date.strftime("%Y-%m-%d"),
                 "payment_date": installment_payment_date.strftime("%Y-%m-%d"),
                 "amount": amount_per_installment,
@@ -194,16 +203,19 @@ def save_card_transaction(
 # DASHBOARD QUERIES
 # ============================================
 
-def get_available_months() -> List[Tuple[int, int, str]]:
+def get_available_months(user_id: str) -> List[Tuple[int, int, str]]:
     """
-    Get list of months with transactions based on payment_date.
+    Get list of months with transactions based on payment_date (user-specific).
     Returns: List of (year, month, display_string) tuples
     """
     try:
         supabase = get_supabase_client()
         
-        # Get distinct payment_dates
-        response = supabase.table("transactions").select("payment_date").execute()
+        # Get distinct payment_dates for this user
+        response = supabase.table("transactions") \
+            .select("payment_date") \
+            .eq("user_id", user_id) \
+            .execute()
         
         if not response.data:
             return []
@@ -236,9 +248,9 @@ def get_available_months() -> List[Tuple[int, int, str]]:
         return []
 
 
-def get_monthly_summary(year: int, month: int) -> Dict[str, float]:
+def get_monthly_summary(user_id: str, year: int, month: int) -> Dict[str, float]:
     """
-    Get financial summary for a specific month based on payment_date.
+    Get financial summary for a specific month based on payment_date (user-specific).
     
     Returns: Dict with keys:
         - 'income': Total income
@@ -257,9 +269,10 @@ def get_monthly_summary(year: int, month: int) -> Dict[str, float]:
         else:
             end_date = datetime(year, month + 1, 1)
         
-        # Query transactions for the month
+        # Query transactions for the month (user-specific)
         response = supabase.table("transactions") \
             .select("type, amount") \
+            .eq("user_id", user_id) \
             .gte("payment_date", start_date.strftime("%Y-%m-%d")) \
             .lt("payment_date", end_date.strftime("%Y-%m-%d")) \
             .execute()
@@ -307,20 +320,23 @@ def get_monthly_summary(year: int, month: int) -> Dict[str, float]:
 # CARD MANAGEMENT
 # ============================================
 
-def get_all_cards() -> List[Dict]:
-    """Get all credit cards"""
+def get_all_cards(user_id: str) -> List[Dict]:
+    """Get all credit cards for the authenticated user"""
     try:
         supabase = get_supabase_client()
-        response = supabase.table("credit_cards").select("*").execute()
+        response = supabase.table("credit_cards") \
+            .select("*") \
+            .eq("user_id", user_id) \
+            .execute()
         return response.data
     except Exception as e:
         st.error(f"Error fetching cards: {str(e)}")
         return []
 
 
-def update_card_closing(card_id: int, new_closing_day: int) -> bool:
+def update_card_closing(user_id: str, card_id: int, new_closing_day: int) -> bool:
     """
-    Update card's closing day.
+    Update card's closing day (user must own the card).
     Note: This only affects NEW transactions.
     """
     try:
@@ -331,10 +347,11 @@ def update_card_closing(card_id: int, new_closing_day: int) -> bool:
             st.error("Closing day must be between 1 and 31")
             return False
         
-        # Update card
+        # Update card (only if user owns it)
         supabase.table("credit_cards") \
             .update({"closing_day": new_closing_day}) \
             .eq("id", card_id) \
+            .eq("user_id", user_id) \
             .execute()
         
         return True
@@ -343,13 +360,48 @@ def update_card_closing(card_id: int, new_closing_day: int) -> bool:
         st.error(f"Error updating card: {str(e)}")
         return False
 
+
+def create_default_cards(user_id: str) -> bool:
+    """
+    Create default starter cards for a new user
+    """
+    try:
+        supabase = get_supabase_client()
+        
+        # Check if user already has cards
+        existing = supabase.table("credit_cards") \
+            .select("id") \
+            .eq("user_id", user_id) \
+            .execute()
+        
+        if existing.data:
+            return False  # User already has cards
+        
+        # Create default cards
+        default_cards = [
+            {"name": "Mi Tarjeta 1", "closing_day": 28, "user_id": user_id},
+            {"name": "Mi Tarjeta 2", "closing_day": 28, "user_id": user_id}
+        ]
+        
+        supabase.table("credit_cards").insert(default_cards).execute()
+        return True
+        
+    except Exception as e:
+        st.error(f"Error creating default cards: {str(e)}")
+        return False
+
 # ============================================
 # TRANSACTION QUERIES
 # ============================================
 
-def get_monthly_transactions(year: int, month: int, trans_type: Optional[str] = None) -> List[Dict]:
+def get_monthly_transactions(
+    user_id: str,
+    year: int,
+    month: int,
+    trans_type: Optional[str] = None
+) -> List[Dict]:
     """
-    Get all transactions for a specific month.
+    Get all transactions for a specific month (user-specific).
     Optionally filter by type.
     """
     try:
@@ -362,9 +414,10 @@ def get_monthly_transactions(year: int, month: int, trans_type: Optional[str] = 
         else:
             end_date = datetime(year, month + 1, 1)
         
-        # Build query
+        # Build query (user-specific)
         query = supabase.table("transactions") \
             .select("*, credit_cards(name)") \
+            .eq("user_id", user_id) \
             .gte("payment_date", start_date.strftime("%Y-%m-%d")) \
             .lt("payment_date", end_date.strftime("%Y-%m-%d"))
         
@@ -382,11 +435,12 @@ def get_monthly_transactions(year: int, month: int, trans_type: Optional[str] = 
         return []
 
 
-def delete_transaction(transaction_id: int) -> bool:
+def delete_transaction(user_id: str, transaction_id: int) -> bool:
     """
-    Delete a transaction by ID with robust error handling.
+    Delete a transaction by ID (user must own it).
     
     Args:
+        user_id: The authenticated user's ID
         transaction_id: The database ID of the transaction to delete
         
     Returns:
@@ -395,10 +449,11 @@ def delete_transaction(transaction_id: int) -> bool:
     try:
         supabase = get_supabase_client()
         
-        # Attempt to delete the transaction
+        # Attempt to delete the transaction (only if user owns it)
         response = supabase.table("transactions") \
             .delete() \
             .eq("id", transaction_id) \
+            .eq("user_id", user_id) \
             .execute()
         
         # Check if deletion was successful
@@ -407,8 +462,8 @@ def delete_transaction(transaction_id: int) -> bool:
             st.success(f"✅ Transacción eliminada correctamente (ID: {transaction_id})")
             return True
         else:
-            # No rows were deleted (transaction might not exist)
-            st.warning(f"⚠️ No se encontró la transacción con ID {transaction_id}")
+            # No rows were deleted (transaction doesn't exist or doesn't belong to user)
+            st.warning(f"⚠️ No se encontró la transacción o no te pertenece (ID: {transaction_id})")
             return False
             
     except Exception as e:
@@ -417,13 +472,41 @@ def delete_transaction(transaction_id: int) -> bool:
         st.error(f"Detalles técnicos: {type(e).__name__}")
         return False
 
+# ============================================
+# USER MANAGEMENT
+# ============================================
+
+def claim_orphaned_data(user_id: str) -> Tuple[int, int]:
+    """
+    Claim orphaned data (transactions & cards with NULL user_id)
+    This is used for migration from single-user to multi-user
+    
+    Returns: (transactions_claimed, cards_claimed)
+    """
+    try:
+        supabase = get_supabase_client()
+        
+        # Call the SQL function
+        response = supabase.rpc('claim_orphaned_data', {
+            'claiming_user_id': user_id
+        }).execute()
+        
+        if response.data and len(response.data) > 0:
+            result = response.data[0]
+            return result.get('transactions_claimed', 0), result.get('cards_claimed', 0)
+        
+        return 0, 0
+        
+    except Exception as e:
+        st.error(f"Error claiming orphaned data: {str(e)}")
+        return 0, 0
 
 # ============================================
 # USD RATES (Future Enhancement)
 # ============================================
 
 def save_usd_rate(date: datetime, official: float, blue: float) -> bool:
-    """Save USD exchange rate"""
+    """Save USD exchange rate (shared data, no user_id)"""
     try:
         supabase = get_supabase_client()
         
@@ -443,7 +526,7 @@ def save_usd_rate(date: datetime, official: float, blue: float) -> bool:
 
 
 def get_usd_rate(date: datetime) -> Optional[Dict[str, float]]:
-    """Get USD rate for a specific date"""
+    """Get USD rate for a specific date (shared data)"""
     try:
         supabase = get_supabase_client()
         

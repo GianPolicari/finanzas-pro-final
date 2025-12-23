@@ -7,6 +7,12 @@ from datetime import datetime
 from database import get_available_months, get_monthly_transactions, delete_transaction
 
 def main():
+    # Get authenticated user ID from session state
+    user_id = st.session_state.get('user_id')
+    if not user_id:
+        st.error("⚠️ Error: No user authenticated")
+        return
+    
     st.title("🗂️ Gestión de Transacciones")
     st.markdown("---")
     
@@ -14,7 +20,7 @@ def main():
     # MONTH FILTER
     # ============================================
     
-    available_months = get_available_months()
+    available_months = get_available_months(user_id)
     
     if not available_months:
         st.info("👋 No hay transacciones registradas aún.")
@@ -55,9 +61,9 @@ def main():
     
     # Get transactions
     if filter_type == "Todas":
-        transactions = get_monthly_transactions(selected_year, selected_month)
+        transactions = get_monthly_transactions(user_id, selected_year, selected_month)
     else:
-        transactions = get_monthly_transactions(selected_year, selected_month, filter_type)
+        transactions = get_monthly_transactions(user_id, selected_year, selected_month, filter_type)
     
     if not transactions:
         st.info("No hay transacciones para este período con los filtros seleccionados.")
@@ -143,7 +149,7 @@ def main():
                         use_container_width=True
                     ):
                         # Perform the deletion
-                        success = delete_transaction(trans['id'])
+                        success = delete_transaction(user_id, trans['id'])
                         
                         if success:
                             # Clear confirmation state

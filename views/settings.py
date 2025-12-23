@@ -7,6 +7,12 @@ import streamlit as st
 from database import get_all_cards, update_card_closing
 
 def main():
+    # Get authenticated user ID from session state
+    user_id = st.session_state.get('user_id')
+    if not user_id:
+        st.error("⚠️ Error: No user authenticated")
+        return
+    
     st.title("⚙️ Configuración")
     st.markdown("---")
     
@@ -28,7 +34,7 @@ def main():
     st.markdown("---")
     
     # Load cards
-    cards = get_all_cards()
+    cards = get_all_cards(user_id)
     
     if not cards:
         st.info("No hay tarjetas configuradas en el sistema.")
@@ -76,7 +82,7 @@ def main():
                     if save_btn:
                         if new_closing_day != card['closing_day']:
                             with st.spinner("Actualizando..."):
-                                success = update_card_closing(card['id'], new_closing_day)
+                                success = update_card_closing(user_id, card['id'], new_closing_day)
                             
                             if success:
                                 st.success(f"✅ Día de cierre actualizado a {new_closing_day}")

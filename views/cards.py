@@ -8,6 +8,12 @@ from datetime import datetime, date
 from database import get_all_cards, save_card_transaction
 
 def main():
+    # Get authenticated user ID from session state
+    user_id = st.session_state.get('user_id')
+    if not user_id:
+        st.error("⚠️ Error: No user authenticated")
+        return
+    
     st.title("💳 Compras con Tarjeta")
     st.markdown("---")
     
@@ -15,7 +21,7 @@ def main():
     # LOAD CARDS
     # ============================================
     
-    cards = get_all_cards()
+    cards = get_all_cards(user_id)
     
     if not cards:
         st.error("⚠️ No hay tarjetas configuradas. Ve a Configuración para agregar tarjetas.")
@@ -92,6 +98,7 @@ def main():
             # Save transaction
             with st.spinner("Guardando..."):
                 success, affected_months = save_card_transaction(
+                    user_id=user_id,
                     card_id=selected_card_id,
                     date=datetime.combine(purchase_date, datetime.min.time()),
                     amount=amount,

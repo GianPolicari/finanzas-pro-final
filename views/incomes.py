@@ -8,6 +8,12 @@ from datetime import datetime, date
 from database import save_cash_transaction
 
 def main():
+    # Get authenticated user ID from session state
+    user_id = st.session_state.get('user_id')
+    if not user_id:
+        st.error("⚠️ Error: No user authenticated")
+        return
+    
     st.title("💵 Ingresos")
     st.markdown("---")
     
@@ -78,6 +84,7 @@ def main():
             # Save transaction
             with st.spinner("Guardando..."):
                 success = save_cash_transaction(
+                    user_id=user_id,
                     trans_type="Income",
                     date=datetime.combine(income_date, datetime.min.time()),
                     amount=amount,
