@@ -83,7 +83,7 @@ else:
     # NAVIGATION PAGES
     # ============================================
     
-    from views import dashboard, cards, incomes, fixed, investments, settings, transactions
+    from views import dashboard, cards, incomes, fixed, investments, settings, transactions, configuration
     
     # Create navigation
     pg = st.navigation(
@@ -99,6 +99,7 @@ else:
             ],
             "Gestión": [
                 st.Page(transactions.main, title="🗂️ Ver/Eliminar", url_path="transactions"),
+                st.Page(configuration.main, title="💳 Mis Tarjetas", url_path="configuration"),
                 st.Page(settings.main, title="⚙️ Configuración", url_path="settings")
             ]
         }

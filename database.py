@@ -390,6 +390,102 @@ def create_default_cards(user_id: str) -> bool:
         st.error(f"Error creating default cards: {str(e)}")
         return False
 
+
+def create_card(user_id: str, name: str, closing_day: int) -> bool:
+    """
+    Create a new credit card for the user
+    
+    Args:
+        user_id: User's ID
+        name: Card name (e.g., "Visa Galicia")
+        closing_day: Day of month when statement closes (1-31)
+        
+    Returns:
+        bool: True if creation was successful
+    """
+    try:
+        supabase = get_supabase_client()
+        
+        # Validate closing day
+        if not (1 <= closing_day <= 31):
+            st.error("El día de cierre debe estar entre 1 y 31")
+            return False
+        
+        # Validate name
+        if not name or not name.strip():
+            st.error("El nombre de la tarjeta no puede estar vacío")
+            return False
+        
+        # Check for duplicate name for this user
+        existing = supabase.table("credit_cards") \
+            .select("id") \
+            .eq("user_id", user_id) \
+            .eq("name", name.strip()) \
+            .execute()
+        
+        if existing.data:
+            st.error(f"Ya tienes una tarjeta con el nombre '{name}'")
+            return False
+        
+        # Create the card
+        data = {
+            "user_id": user_id,
+            "name": name.strip(),
+            "closing_day": closing_day
+        }
+        
+        supabase.table("credit_cards").insert(data).execute()
+        return True
+        
+    except Exception as e:
+        st.error(f"Error creating card: {str(e)}")
+        return False
+
+
+def delete_card(user_id: str, card_id: int) -> bool:
+    """
+    Delete a credit card (user must own it)
+    
+    Args:
+        user_id: User's ID
+        card_id: Card ID to delete
+        
+    Returns:
+        bool: True if deletion was successful
+    """
+    try:
+        supabase = get_supabase_client()
+        
+        # Check if card has associated transactions
+        transactions = supabase.table("transactions") \
+            .select("id") \
+            .eq("card_id", card_id) \
+            .eq("user_id", user_id) \
+            .limit(1) \
+            .execute()
+        
+        if transactions.data:
+            st.warning("⚠️ No se puede eliminar la tarjeta porque tiene transacciones asociadas. Elimina las transacciones primero.")
+            return False
+        
+        # Delete the card (only if user owns it)
+        response = supabase.table("credit_cards") \
+            .delete() \
+            .eq("id", card_id) \
+            .eq("user_id", user_id) \
+            .execute()
+        
+        if response.data:
+            st.success(f"✅ Tarjeta eliminada correctamente")
+            return True
+        else:
+            st.warning("⚠️ No se encontró la tarjeta o no te pertenece")
+            return False
+            
+    except Exception as e:
+        st.error(f"Error deleting card: {str(e)}")
+        return False
+
 # ============================================
 # TRANSACTION QUERIES
 # ============================================
